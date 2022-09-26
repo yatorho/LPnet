@@ -1,0 +1,5 @@
+__pycache__/
+.vscode/
+crnn/CTC/
+crnn/Loc/
+crnn/Res50/
