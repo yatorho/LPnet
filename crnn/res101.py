@@ -21,7 +21,7 @@ ap.add_argument("-b", "--batchsize", default=4,
                 help="batch size for train")
 ap.add_argument("-r", "--resume", default='0',
                 help="file for re-train")
-ap.add_argument("-w", "--write_file", default='res50.out',
+ap.add_argument("-w", "--write_file", default='res101.out',
                 help="file for output")
 
 args = vars(ap.parse_args())
@@ -33,8 +33,8 @@ num_classes = 4
 img_size = (480, 480)
 batch_size = int(args["batchsize"]) if use_gpu else 8
 
-model_folder = 'Res50/'
-store_name = model_folder + 'res50.pth'
+model_folder = 'Res101/'
+store_name = model_folder + 'res101.pth'
 
 if not os.path.isdir(model_folder):
     os.mkdir(model_folder)
@@ -49,19 +49,19 @@ print("Starting training with:\nInput folder: {} \n Epochs: {} \n Batch size: {}
     args["images"], epochs, batch_size, img_size, num_classes, store_name, args['resume'], args['write_file']))
 print("===============================================")
 
-class Res50(nn.Module):
+class Res101(nn.Module):
     def __init__(self, num_classes=4):
-        super(Res50, self).__init__()
-        self.res50 = models.resnet50(pretrained=True).float()
-        # Set res50 dtype to float32
-        self.res50.fc = nn.Linear(2048, num_classes).float()
+        super(Res101, self).__init__()
+        self.res101 = models.resnet101(pretrained=False).float()
+        # Set res101 dtype to float32
+        self.res101.fc = nn.Linear(2048, num_classes).float()
 
     def forward(self, x):
-        out = self.res50(x)
+        out = self.res101(x)
         assert out.size(1) == num_classes
-        return out
+        return torch.sigmoid(out)
 
-model = Res50(num_classes=num_classes)
+model = Res101(num_classes=num_classes)
 if use_gpu:
     model = model.cuda()
 
@@ -76,21 +76,21 @@ if args['resume'] != '0':
 else:
     print("No checkpoint found. Starting training from scratch.")
 
-print(model)
+# print(model)
 n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 print("Number of trainable parameters: {}".format(n_params))
 
-criterion = nn.MSELoss()
+criterion = nn.L1Loss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.15)
-
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.8)
 
 train_dst = data_loader.ChaLocDataLoader(args["images"].split(","), img_size)
 val_dst = data_loader.ChaLocDataLoader(args["val_images"].split(","), img_size)
 train_loader = torch.utils.data.DataLoader(
     train_dst, batch_size=batch_size, shuffle=True)
+val_batch_size = 16
 val_loader = torch.utils.data.DataLoader(
-    val_dst, batch_size=batch_size, shuffle=True)
+    val_dst, batch_size=val_batch_size, shuffle=False)
 
 def validate(model, epoch):
     model.eval()
@@ -106,7 +106,7 @@ def validate(model, epoch):
         
         y_pred = model(x)
         
-        if len(y_pred) == batch_size:
+        if len(y_pred) == val_batch_size:
             loss = criterion(y_pred, y)
             assert loss.shape == torch.Size([])
 
@@ -114,17 +114,17 @@ def validate(model, epoch):
         
         if i % 50 == 1:
             with open(args['write_file'], 'a') as out_f:
-                out_f.write("Validation: Batch: {}/{} \t Loss: {} \t Time: {} \t Num images: {}\t \n".format(i, len(val_loader), np.mean(loss_avg[-50:]), time.time() - start, i*batch_size))
-    print("Validation: Epoch: {}/{} \t Loss: {} \t Time: {} \t Num images: {}\t ".format(epoch+1, epochs, np.mean(loss_avg), time.time() - start, len(val_loader)*batch_size))
+                out_f.write("Validation: Batch: {}/{} \t Loss: {} \t Time: {} \t Num images: {}\t \n".format(i, len(val_loader), np.mean(loss_avg[-50:]), time.time() - start, i*val_batch_size))
+    print("Validation: Epoch: {}/{} \t Loss: {} \t Time: {} \t Num images: {}\t ".format(epoch+1, epochs, np.mean(loss_avg), time.time() - start, len(val_loader)*val_batch_size))
+
 
 def train(model, loss, optimizer, epochs):
-    model.train()
-    # validate(model, 0)
     for epoch in range(epochs):
+        model.train()
         loss_avg = []
         start = time.time()
 
-        print("Epoch: {}/{} with lr: {}...".format(epoch+1, epochs, scheduler.get_lr()))
+        print("Epoch: {}/{} with lr: {}...".format(epoch+1, epochs, scheduler.get_last_lr()))
         for i, (images, labels) in enumerate(train_loader):
             if use_gpu:
                 x = torch.autograd.Variable(images.cuda(), requires_grad=False)
@@ -146,11 +146,10 @@ def train(model, loss, optimizer, epochs):
                 optimizer.step()
             
             if i % 50 == 1:
-                torch.save(model.state_dict(), store_name)
+                # torch.save(model.state_dict(), store_name)
                 with open(args['write_file'], 'a') as out_f:
                     out_f.write("Epoch: {}/{} \t Batch: {}/{} \t Loss: {} \t Time: {} \t Num images: {}\t \n".format(
                         epoch+1, epochs, i, len(train_loader), np.mean(loss_avg[-50:]), time.time()-start, i * batch_size))
-        
         print("Epoch: {}/{} \t Loss: {}".format(epoch+1, epochs, np.mean(loss_avg)))
         with open(args['write_file'], 'a') as out_f:
             out_f.write("Epoch: {}/{} \t Loss: {} \t Time: {} \t\n".format(
@@ -158,6 +157,8 @@ def train(model, loss, optimizer, epochs):
         torch.save(model.state_dict(), store_name + str(epoch+1))
         scheduler.step()
 
+        validate(model, epoch)
     return model
+
 if __name__ == "__main__":
     train(model, criterion, optimizer, epochs)

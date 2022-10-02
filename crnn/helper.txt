@@ -1,1 +1,0 @@
-python loc.py -i E:\DataSet\CCPD\CCPD2019\ccpd_base
