@@ -1,7 +1,5 @@
 # Project report of license plate recognition based on CRNN and CTC
 
-Our group members are: 王威虎、杨世博、杨镇宇、邓京雨
-
 ## Contents
 
 - [Project report of license plate recognition based on CRNN and CTC](#project-report-of-license-plate-recognition-based-on-crnn-and-ctc)
